@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Env vars (override in Render / docker run)
+# Env vars (override in Render / VPS / Sealos)
 UUID="${UUID:-257daab4-768d-4d0b-b8cb-1b2c38fe61f2}"
 PORT="${PORT:-13000}"
 SERVICE_NAME="${SERVICE_NAME:-grpc-c49c652f}"
 NGINX_PORT="${NGINX_PORT:-8443}"
-USE_TLS="${USE_TLS:-0}"           # 0 = plain HTTP at container edge (Render/Sealos), 1 = TLS terminated in container
-TRANSPORT="${TRANSPORT:-grpc}"    # grpc | ws
+USE_TLS="${USE_TLS:-0}"           # 0 = plain HTTP on NGINX_PORT, 1 = nginx terminates TLS
+TRANSPORT="${TRANSPORT:-ws}"      # ws | grpc
+CF_TUNNEL_ENABLE="${CF_TUNNEL_ENABLE:-0}"
+CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
 
 # 1) Core config
 mkdir -p /etc/core
@@ -187,6 +189,13 @@ fi
 
 nginx -t >/dev/null 2>&1
 
-# 5) Start core (silent) + nginx
+# 5) Start core (silent)
 /usr/bin/core run -config /etc/core/config.json >/dev/null 2>&1 &
-nginx -g 'daemon off;'
+
+# 6) Optional Cloudflare Tunnel (token-based)
+if [ "${CF_TUNNEL_ENABLE}" = "1" ] && [ -n "${CF_TUNNEL_TOKEN}" ]; then
+  /usr/bin/cloudflared tunnel run --token "${CF_TUNNEL_TOKEN}" >/dev/null 2>&1 &
+fi
+
+# 7) Start nginx in foreground
+inginx -g 'daemon off;'

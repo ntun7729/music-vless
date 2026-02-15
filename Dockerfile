@@ -27,19 +27,32 @@ RUN ARCH=$(uname -m) && \
     install -m 0644 /tmp/corebundle/geosite.dat /usr/share/core/geosite.dat && \
     rm -rf /tmp/corebundle /tmp/core.zip
 
+# Install cloudflared (for optional tunnel)
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64|amd64) CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" ;; \
+      aarch64|arm64) CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" ;; \
+      armv7l|armv7|arm) CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm" ;; \
+      *) echo "Unsupported arch for cloudflared: $ARCH" >&2; exit 1 ;; \
+    esac && \
+    curl -L "$CF_URL" -o /usr/bin/cloudflared && \
+    chmod +x /usr/bin/cloudflared
+
 # App files
 WORKDIR /app
 COPY index.html /app/index.html
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Default envs (override in Render/Sealos)
+# Default envs (override in Render/Sealos/VPS)
 ENV UUID=257daab4-768d-4d0b-b8cb-1b2c38fe61f2 \
     PORT=13000 \
     SERVICE_NAME=grpc-c49c652f \
     NGINX_PORT=8443 \
     USE_TLS=0 \
-    TRANSPORT=ws
+    TRANSPORT=ws \
+    CF_TUNNEL_ENABLE=0 \
+    CF_TUNNEL_TOKEN=
 
 EXPOSE 8443
 
