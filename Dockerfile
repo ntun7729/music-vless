@@ -8,7 +8,7 @@ RUN apt-get update && \
       ca-certificates curl unzip nginx openssl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install core (VLESS/gRPC engine)
+# Install core (VLESS engine)
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
       x86_64|amd64) B64_URL="aHR0cHM6Ly9naXRodWIuY29tL1hUTFMvWHJheS1jb3JlL3JlbGVhc2VzL2xhdGVzdC9kb3dubG9hZC9YcmF5LWxpbnV4LTY0LnppcA==" ;; \
@@ -33,12 +33,13 @@ COPY index.html /app/index.html
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Default envs (override in Render)
+# Default envs (override in Render/Sealos)
 ENV UUID=257daab4-768d-4d0b-b8cb-1b2c38fe61f2 \
-    GRPC_PORT=13000 \
+    PORT=13000 \
     SERVICE_NAME=grpc-c49c652f \
     NGINX_PORT=8443 \
-    USE_TLS=1
+    USE_TLS=0 \
+    TRANSPORT=ws
 
 EXPOSE 8443
 

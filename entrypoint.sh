@@ -3,20 +3,51 @@ set -euo pipefail
 
 # Env vars (override in Render / docker run)
 UUID="${UUID:-257daab4-768d-4d0b-b8cb-1b2c38fe61f2}"
-GRPC_PORT="${GRPC_PORT:-13000}"
+PORT="${PORT:-13000}"
 SERVICE_NAME="${SERVICE_NAME:-grpc-c49c652f}"
 NGINX_PORT="${NGINX_PORT:-8443}"
-USE_TLS="${USE_TLS:-1}"
+USE_TLS="${USE_TLS:-0}"           # 0 = plain HTTP at container edge (Render/Sealos), 1 = TLS terminated in container
+TRANSPORT="${TRANSPORT:-grpc}"    # grpc | ws
 
 # 1) Core config
 mkdir -p /etc/core
-cat >/etc/core/config.json <<EOF
+
+if [ "${TRANSPORT}" = "ws" ]; then
+  cat >/etc/core/config.json <<EOF
 {
   "log": { "loglevel": "warning" },
   "inbounds": [
     {
       "listen": "0.0.0.0",
-      "port": ${GRPC_PORT},
+      "port": ${PORT},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          { "id": "${UUID}" }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/${SERVICE_NAME}"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    { "protocol": "freedom", "settings": {} }
+  ]
+}
+EOF
+else
+  cat >/etc/core/config.json <<EOF
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": ${PORT},
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -37,6 +68,7 @@ cat >/etc/core/config.json <<EOF
   ]
 }
 EOF
+fi
 
 # 2) Website root
 mkdir -p /var/www/music
@@ -56,7 +88,33 @@ mkdir -p /etc/nginx/conf.d
 
 # 4) nginx vhost
 if [ "${USE_TLS}" = "1" ]; then
-  cat >/etc/nginx/conf.d/grpc.conf <<EOF
+  if [ "${TRANSPORT}" = "ws" ]; then
+    cat >/etc/nginx/conf.d/grpc.conf <<EOF
+server {
+  listen ${NGINX_PORT} ssl http2;
+  server_name _;
+
+  ssl_certificate     /etc/nginx/s2.crt;
+  ssl_certificate_key /etc/nginx/s2.key;
+
+  root /var/www/music;
+  index index.html;
+
+  location / {
+    try_files \$uri \$uri/ =404;
+  }
+
+  location /${SERVICE_NAME} {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_pass http://127.0.0.1:${PORT};
+  }
+}
+EOF
+  else
+    cat >/etc/nginx/conf.d/grpc.conf <<EOF
 server {
   listen ${NGINX_PORT} ssl http2;
   server_name _;
@@ -75,12 +133,36 @@ server {
     grpc_set_header Host               \$host;
     grpc_set_header X-Real-IP          \$remote_addr;
     grpc_set_header X-Forwarded-For    \$proxy_add_x_forwarded_for;
-    grpc_pass grpc://127.0.0.1:${GRPC_PORT};
+    grpc_pass grpc://127.0.0.1:${PORT};
   }
 }
 EOF
+  fi
 else
-  cat >/etc/nginx/conf.d/grpc.conf <<EOF
+  if [ "${TRANSPORT}" = "ws" ]; then
+    cat >/etc/nginx/conf.d/grpc.conf <<EOF
+server {
+  listen ${NGINX_PORT};
+  server_name _;
+
+  root /var/www/music;
+  index index.html;
+
+  location / {
+    try_files \$uri \$uri/ =404;
+  }
+
+  location /${SERVICE_NAME} {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_pass http://127.0.0.1:${PORT};
+  }
+}
+EOF
+  else
+    cat >/etc/nginx/conf.d/grpc.conf <<EOF
 server {
   listen ${NGINX_PORT};
   server_name _;
@@ -96,10 +178,11 @@ server {
     grpc_set_header Host               \$host;
     grpc_set_header X-Real-IP          \$remote_addr;
     grpc_set_header X-Forwarded-For    \$proxy_add_x_forwarded_for;
-    grpc_pass grpc://127.0.0.1:${GRPC_PORT};
+    grpc_pass grpc://127.0.0.1:${PORT};
   }
 }
 EOF
+  fi
 fi
 
 nginx -t >/dev/null 2>&1
