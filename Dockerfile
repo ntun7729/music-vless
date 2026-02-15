@@ -37,7 +37,8 @@ RUN chmod +x /entrypoint.sh
 ENV UUID=257daab4-768d-4d0b-b8cb-1b2c38fe61f2 \
     GRPC_PORT=13000 \
     SERVICE_NAME=grpc-c49c652f \
-    NGINX_PORT=8443
+    NGINX_PORT=8443 \
+    USE_TLS=1
 
 EXPOSE 8443
 

@@ -6,6 +6,7 @@ UUID="${UUID:-257daab4-768d-4d0b-b8cb-1b2c38fe61f2}"
 GRPC_PORT="${GRPC_PORT:-13000}"
 SERVICE_NAME="${SERVICE_NAME:-grpc-c49c652f}"
 NGINX_PORT="${NGINX_PORT:-8443}"
+USE_TLS="${USE_TLS:-1}"
 
 # 1) Core config
 mkdir -p /etc/core
@@ -41,9 +42,9 @@ EOF
 mkdir -p /var/www/music
 cp -f /app/index.html /var/www/music/index.html
 
-# 3) Self-signed cert (used only if TLS terminates here)
+# 3) TLS assets (only when USE_TLS=1)
 mkdir -p /etc/nginx
-if [ ! -f /etc/nginx/s2.crt ]; then
+if [ "${USE_TLS}" = "1" ] && [ ! -f /etc/nginx/s2.crt ]; then
   openssl req -x509 -newkey rsa:2048 -nodes \
     -keyout /etc/nginx/s2.key \
     -out /etc/nginx/s2.crt \
@@ -51,8 +52,11 @@ if [ ! -f /etc/nginx/s2.crt ]; then
     -subj "/CN=localhost" >/dev/null 2>&1
 fi
 
+mkdir -p /etc/nginx/conf.d
+
 # 4) nginx vhost
-cat >/etc/nginx/conf.d/grpc.conf <<EOF
+if [ "${USE_TLS}" = "1" ]; then
+  cat >/etc/nginx/conf.d/grpc.conf <<EOF
 server {
   listen ${NGINX_PORT} ssl http2;
   server_name _;
@@ -75,6 +79,28 @@ server {
   }
 }
 EOF
+else
+  cat >/etc/nginx/conf.d/grpc.conf <<EOF
+server {
+  listen ${NGINX_PORT};
+  server_name _;
+
+  root /var/www/music;
+  index index.html;
+
+  location / {
+    try_files \$uri \$uri/ =404;
+  }
+
+  location /${SERVICE_NAME} {
+    grpc_set_header Host               \$host;
+    grpc_set_header X-Real-IP          \$remote_addr;
+    grpc_set_header X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    grpc_pass grpc://127.0.0.1:${GRPC_PORT};
+  }
+}
+EOF
+fi
 
 nginx -t >/dev/null 2>&1
 
